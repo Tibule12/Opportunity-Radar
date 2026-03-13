@@ -254,6 +254,16 @@ Start each launch zone with at least 20 active workers.
 
 - Google Maps API
 
+## Local Setup
+
+Clone-ready setup documentation is available here:
+
+- `docs/mobile-platform-setup.md`
+- `docs/ubuntu-run-setup.md`
+- `docs/firebase-local-setup.md`
+
+If Firebase has not been configured yet for the current machine, the app intentionally falls back to a setup-required screen instead of crashing.
+
 ## Proposed Data Model
 
 Primary collections:

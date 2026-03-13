@@ -6,15 +6,11 @@
 build/
 .idea/
 .vscode/
-android/
-ios/
-linux/
-macos/
-windows/
-web/
 coverage/
 functions/node_modules/
 functions/lib/
 firebase-debug.log
 firestore-debug.log
 storage-debug.log
+*.iml
+
