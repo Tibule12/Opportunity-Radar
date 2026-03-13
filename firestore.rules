@@ -1,0 +1,236 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function taskData(taskId) {
+      return get(/databases/$(database)/documents/tasks/$(taskId)).data;
+    }
+
+    function taskFieldsUnchanged() {
+      return request.resource.data.created_by == resource.data.created_by
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.budget_amount == resource.data.budget_amount
+        && request.resource.data.currency == resource.data.currency
+        && request.resource.data.location == resource.data.location
+        && request.resource.data.photo_urls == resource.data.photo_urls
+        && request.resource.data.notified_radius_meters == resource.data.notified_radius_meters
+        && request.resource.data.response_count == resource.data.response_count
+        && request.resource.data.responses_received == resource.data.responses_received
+        && request.resource.data.workers_notified == resource.data.workers_notified
+        && request.resource.data.distribution_stage == resource.data.distribution_stage
+        && request.resource.data.notified_worker_ids == resource.data.notified_worker_ids
+        && request.resource.data.last_distribution_at == resource.data.last_distribution_at
+        && request.resource.data.expiry_warning_sent_at == resource.data.expiry_warning_sent_at
+        && request.resource.data.view_count == resource.data.view_count
+        && request.resource.data.expires_at == resource.data.expires_at
+        && request.resource.data.completed_at == resource.data.completed_at
+        && request.resource.data.created_at == resource.data.created_at;
+    }
+
+    function validTaskStatusUpdate() {
+      return (
+        request.auth.uid == resource.data.created_by
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'matched'
+        && request.resource.data.assigned_worker_id != null
+      ) || (
+        (request.auth.uid == resource.data.created_by || request.auth.uid == resource.data.assigned_worker_id)
+        && resource.data.assigned_worker_id != null
+        && request.resource.data.assigned_worker_id == resource.data.assigned_worker_id
+        && resource.data.status == 'matched'
+        && request.resource.data.status == 'in_progress'
+      ) || (
+        (request.auth.uid == resource.data.created_by || request.auth.uid == resource.data.assigned_worker_id)
+        && resource.data.assigned_worker_id != null
+        && request.resource.data.assigned_worker_id == resource.data.assigned_worker_id
+        && (resource.data.status == 'matched' || resource.data.status == 'in_progress')
+        && request.resource.data.status == 'completed'
+      );
+    }
+
+    function isTaskParticipant(taskId) {
+      let task = taskData(taskId);
+      return isSignedIn() && (
+        task.created_by == request.auth.uid ||
+        task.assigned_worker_id == request.auth.uid
+      );
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && request.resource.data.rating_average == resource.data.rating_average
+        && request.resource.data.rating_count == resource.data.rating_count
+        && request.resource.data.completed_task_count == resource.data.completed_task_count
+        && request.resource.data.response_speed_seconds == resource.data.response_speed_seconds
+        && request.resource.data.referral_count == resource.data.referral_count
+        && request.resource.data.reward_points == resource.data.reward_points
+        && request.resource.data.earnings_today == resource.data.earnings_today
+        && request.resource.data.earnings_week == resource.data.earnings_week
+        && request.resource.data.earnings_month == resource.data.earnings_month
+        && request.resource.data.earnings_lifetime == resource.data.earnings_lifetime
+        && request.resource.data.referral_first_task_rewarded_at == resource.data.referral_first_task_rewarded_at;
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.created_by == request.auth.uid;
+      allow update: if isSignedIn()
+        && taskFieldsUnchanged()
+        && validTaskStatusUpdate();
+    }
+
+    match /task_responses/{responseId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.worker_id == request.auth.uid
+        && taskData(request.resource.data.task_id).status == 'open'
+        && taskData(request.resource.data.task_id).created_by == request.resource.data.customer_id
+        && taskData(request.resource.data.task_id).created_by != request.auth.uid;
+      allow update: if isSignedIn() && (
+        (
+          resource.data.customer_id == request.auth.uid &&
+          request.resource.data.task_id == resource.data.task_id &&
+          request.resource.data.worker_id == resource.data.worker_id &&
+          request.resource.data.customer_id == resource.data.customer_id &&
+          request.resource.data.message == resource.data.message &&
+          request.resource.data.offered_amount == resource.data.offered_amount &&
+          request.resource.data.estimated_arrival_minutes == resource.data.estimated_arrival_minutes
+        ) ||
+        (
+          resource.data.worker_id == request.auth.uid &&
+          resource.data.status == 'pending' &&
+          request.resource.data.task_id == resource.data.task_id &&
+          request.resource.data.worker_id == resource.data.worker_id &&
+          request.resource.data.customer_id == resource.data.customer_id &&
+          request.resource.data.message == resource.data.message &&
+          request.resource.data.offered_amount == resource.data.offered_amount &&
+          request.resource.data.estimated_arrival_minutes == resource.data.estimated_arrival_minutes &&
+          request.resource.data.status == 'withdrawn'
+        )
+      );
+    }
+
+    match /messages/{messageId} {
+      allow read: if isTaskParticipant(resource.data.task_id);
+      allow create: if isTaskParticipant(request.resource.data.task_id)
+        && taskData(request.resource.data.task_id).assigned_worker_id != null
+        && request.resource.data.sender_id == request.auth.uid
+        && (request.resource.data.message_type == 'text' || request.resource.data.message_type == 'offer')
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.chat_id == request.resource.data.task_id
+          + '_'
+          + taskData(request.resource.data.task_id).created_by
+          + '_'
+          + taskData(request.resource.data.task_id).assigned_worker_id
+        && (
+          (
+            request.auth.uid == taskData(request.resource.data.task_id).created_by
+            && request.resource.data.recipient_id == taskData(request.resource.data.task_id).assigned_worker_id
+          ) || (
+            request.auth.uid == taskData(request.resource.data.task_id).assigned_worker_id
+            && request.resource.data.recipient_id == taskData(request.resource.data.task_id).created_by
+          )
+        )
+        && (
+          (
+            request.resource.data.message_type == 'text'
+            && request.resource.data.offer_payload == null
+          ) || (
+            request.resource.data.message_type == 'offer'
+            && request.resource.data.offer_payload is map
+            && request.resource.data.offer_payload.amount is number
+            && request.resource.data.offer_payload.amount > 0
+            && request.resource.data.offer_payload.currency is string
+          )
+        );
+      allow update: if isTaskParticipant(resource.data.task_id);
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.from_user_id == request.auth.uid
+        && request.resource.data.task_id + '_'
+          + request.resource.data.from_user_id + '_'
+          + request.resource.data.to_user_id == ratingId
+        && taskData(request.resource.data.task_id).status == 'completed'
+        && taskData(request.resource.data.task_id).assigned_worker_id != null
+        && (
+          (
+            request.auth.uid == taskData(request.resource.data.task_id).created_by
+            && request.resource.data.to_user_id == taskData(request.resource.data.task_id).assigned_worker_id
+          ) || (
+            request.auth.uid == taskData(request.resource.data.task_id).assigned_worker_id
+            && request.resource.data.to_user_id == taskData(request.resource.data.task_id).created_by
+          )
+        )
+        && request.resource.data.reliability >= 1
+        && request.resource.data.reliability <= 5
+        && request.resource.data.communication >= 1
+        && request.resource.data.communication <= 5
+        && request.resource.data.speed >= 1
+        && request.resource.data.speed <= 5
+        && request.resource.data.professionalism >= 1
+        && request.resource.data.professionalism <= 5;
+    }
+
+    match /worker_networks/{networkId} {
+      allow read: if isSignedIn()
+        && (resource.data.owner_user_id == request.auth.uid || resource.data.worker_user_id == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.owner_user_id == request.auth.uid
+        && request.resource.data.worker_user_id is string
+        && request.resource.data.worker_user_id != request.auth.uid
+        && request.resource.data.relationship_type == 'trusted';
+      allow update: if false;
+      allow delete: if isSignedIn() && resource.data.owner_user_id == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.body == resource.data.body
+        && request.resource.data.task_id == resource.data.task_id
+        && request.resource.data.created_at == resource.data.created_at;
+      allow create, delete: if false;
+    }
+
+    match /earnings_records/{recordId} {
+      allow read: if isSignedIn()
+        && (resource.data.worker_id == request.auth.uid || resource.data.customer_id == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /worker_locations/{taskId} {
+      allow read: if isTaskParticipant(taskId);
+      allow create, update: if isSignedIn()
+        && request.auth.uid == taskData(taskId).assigned_worker_id
+        && (taskData(taskId).status == 'matched' || taskData(taskId).status == 'in_progress')
+        && request.resource.data.task_id == taskId
+        && request.resource.data.worker_id == request.auth.uid
+        && request.resource.data.customer_id == taskData(taskId).created_by
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.address_text is string;
+      allow delete: if isSignedIn()
+        && request.auth.uid == taskData(taskId).assigned_worker_id;
+    }
+  }
+}
